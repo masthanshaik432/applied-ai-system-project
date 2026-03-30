@@ -109,6 +109,30 @@ methods
 - Did your design change during implementation?
 - If yes, describe at least one change and why you made it.
 
+After creating the skeleton, I asked AI to review and look for potential setbacks. AI gave quite a few change suggestions (9 in total) and the below are the changes I made
+
+Change 1: Planner now owns TaskHistory and Constraint
+Planner.__init__ now takes history and constraint, and time_slots was removed. Slots are pulled from preferences.get_available_time_slots() instead.
+Before this, the planner didn’t actually know when tasks were last completed, so “due” logic was guessy. It also wasn’t enforcing any rules when placing tasks, which meant invalid schedules could slip through.
+
+Change 4: Plan is validated before returning
+generate_daily_plan() now calls self.constraint.validate_schedule() at the end.
+Previously, validation existed but wasn’t part of the normal flow, so bad schedules could make it all the way to the UI without being caught.
+
+Change 7: Two-pass task allocation
+Scheduling now happens in two passes:
+-Inflexible tasks first (like meds or appointments)
+-Flexible tasks after
+The old single-pass approach could fill good time slots with low-priority tasks and leave important ones unscheduled.
+
+Change 8: Completion rate now supports time windows
+get_completion_rate() now takes a since parameter.
+Without it, stats were based on all-time history, which made them misleading—especially for new or recently resumed tasks.
+
+Change 9: total_time is now computed, not stored
+Removed the stored total_time field and replaced it with a @property.
+Before, it could easily get out of sync depending on how tasks were added. Now it’s always accurate since it’s calculated from the current schedule.
+
 ---
 
 ## 2. Scheduling Logic and Tradeoffs

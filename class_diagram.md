@@ -59,9 +59,8 @@ classDiagram
         +datetime date
         +List~TaskSlotPair~ scheduled_tasks
         +List~Task~ unscheduled_tasks
-        +int total_time
+        +total_time() int
         +add_task(task, slot) void
-        +calculate_total_time() int
         +get_summary() dict
         +explain_plan() String
     }
@@ -70,7 +69,8 @@ classDiagram
         +List~Task~ tasks
         +List~Pet~ pets
         +OwnerPreferences preferences
-        +List~TimeSlot~ time_slots
+        +TaskHistory history
+        +Constraint constraint
         +filter_due_tasks(date) List~Task~
         +prioritize_tasks(tasks) List~Task~
         +allocate_tasks_to_slots(tasks) DailyPlan
@@ -106,9 +106,9 @@ classDiagram
     Planner "1" --> "1..*" Pet : manages
     Planner "1" --> "1..*" Task : schedules
     Planner "1" --> "1" OwnerPreferences : uses
-    Planner "1" --> "1..*" TimeSlot : tracks
+    Planner "1" --> "1" TaskHistory : reads
+    Planner "1" --> "1" Constraint : validates with
     Planner --> DailyPlan : generates
-    Planner --> Constraint : validates with
 
     Task "1..*" --> "1" Pet : belongs to
     Task --> TaskHistory : logged in
