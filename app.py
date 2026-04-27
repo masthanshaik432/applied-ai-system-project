@@ -1,5 +1,8 @@
+import os
+
 import streamlit as st
 
+from ai_agent import PawPalAgent, PawPalRAG
 from pawpal_system import (
     Constraint,
     OwnerPreferences,
@@ -11,6 +14,24 @@ from pawpal_system import (
 )
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
+
+# ---------------------------------------------------------------------------
+# Sidebar — Anthropic API key
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    st.header("AI Settings")
+    api_key_input = st.text_input(
+        "Anthropic API key",
+        type="password",
+        placeholder="sk-ant-...",
+        help="Required for AI-powered schedule explanations. Get a key at console.anthropic.com.",
+    )
+    api_key = api_key_input or os.environ.get("ANTHROPIC_API_KEY", "")
+
+    if api_key:
+        st.success("API key loaded — AI explanations enabled.")
+    else:
+        st.info("No API key — schedule will use rule-based explanations.")
 
 # ---------------------------------------------------------------------------
 # Session state initialisation
@@ -71,18 +92,18 @@ st.subheader("Add a Pet")
 with st.form("add_pet_form"):
     col1, col2, col3 = st.columns(3)
     with col1:
-        pet_name = st.text_input("Name", value="Mochi")
+        pet_name = st.text_input("Name", value="")
     with col2:
-        species = st.selectbox("Species", ["dog", "cat", "other"])
+        species = st.selectbox("Species", ["dog", "cat", "rabbit", "fish", "other"])
     with col3:
-        age = st.number_input("Age (years)", min_value=0, max_value=30, value=2)
+        age = st.number_input("Age (years)", min_value=0, max_value=30)
 
     health_input = st.text_input(
         "Health conditions (comma-separated, leave blank if none)",
         value="",
         placeholder="e.g. arthritis, diabetes",
     )
-    auto_tasks = st.checkbox("Auto-generate baseline tasks from pet profile", value=True)
+    auto_tasks = st.checkbox("Auto-generate baseline tasks from pet profile", value=False)
     submitted_pet = st.form_submit_button("Add Pet")
 
 if submitted_pet:
@@ -138,11 +159,11 @@ else:
     with st.form("add_task_form"):
         col1, col2 = st.columns(2)
         with col1:
-            task_name = st.text_input("Task name", value="Evening walk")
+            task_name = st.text_input("Task name", value="")
             task_type = st.selectbox("Type", [t.value for t in TaskType])
-            frequency = st.selectbox("Frequency", ["daily", "twice_daily", "weekly", "biweekly", "monthly"])
+            frequency = st.selectbox("Frequency", ["daily", "twice daily", "weekly", "biweekly", "monthly"])
         with col2:
-            duration = st.number_input("Duration (minutes)", min_value=1, max_value=240, value=30)
+            duration = st.number_input("Duration (minutes)", min_value=1, max_value=240)
             priority = st.slider("Priority", min_value=1, max_value=5, value=3)
             is_flexible = st.checkbox("Flexible (can be skipped if no slot available)", value=True)
 
@@ -229,7 +250,7 @@ else:
 st.divider()
 
 # ---------------------------------------------------------------------------
-# Section 3 — Generate Schedule  →  calls planner.generate_daily_plan()
+# Section 3 — Generate Schedule
 # ---------------------------------------------------------------------------
 st.subheader("Generate Today's Schedule")
 
@@ -238,49 +259,108 @@ if not st.session_state["tasks"]:
 else:
     if st.button("Generate schedule"):
         from datetime import datetime
+
         planner: Planner = st.session_state["planner"]
-        plan = planner.generate_daily_plan(datetime.now())
-        summary = plan.get_summary()
 
-        # Summary metrics
-        col_m1, col_m2, col_m3 = st.columns(3)
-        col_m1.metric("Scheduled", summary["scheduled_count"])
-        col_m2.metric("Could not schedule", summary["unscheduled_count"])
-        col_m3.metric("Total time (min)", summary["total_time_minutes"])
+        if api_key:
+            # ── AI path: agent generates plan + grounded explanation ──────────
+            rag = PawPalRAG(knowledge_dir="knowledge")
+            agent = PawPalAgent(planner=planner, rag=rag, api_key=api_key)
 
-        # Conflict warnings — detect_conflicts() checks every pair of scheduled slots
-        conflicts = plan.detect_conflicts()
-        if conflicts:
-            st.error(f"⚠️ {len(conflicts)} scheduling conflict(s) detected — review your time windows.")
-            for conflict in conflicts:
-                st.error(conflict)
+            with st.spinner("Agent is reviewing your schedule and looking up care guidelines…"):
+                plan, explanation = agent.generate_and_explain(datetime.now())
+
+            summary = plan.get_summary()
+
+            # Summary metrics
+            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1.metric("Scheduled", summary["scheduled_count"])
+            col_m2.metric("Could not schedule", summary["unscheduled_count"])
+            col_m3.metric("Total time (min)", summary["total_time_minutes"])
+
+            # Conflict warnings
+            conflicts = plan.detect_conflicts()
+            if conflicts:
+                st.error(f"⚠️ {len(conflicts)} scheduling conflict(s) detected.")
+                for c in conflicts:
+                    st.error(c)
+            else:
+                st.success("No scheduling conflicts detected.")
+
+            # Chronological schedule table
+            if summary["scheduled_tasks"]:
+                st.write("**Chronological schedule:**")
+                st.dataframe(
+                    summary["scheduled_tasks"],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            # Unscheduled tasks
+            if summary["unscheduled_tasks"]:
+                st.warning(
+                    f"{summary['unscheduled_count']} task(s) could not be scheduled — "
+                    "no suitable time slot was available."
+                )
+                st.dataframe(
+                    summary["unscheduled_tasks"],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            # AI explanation — the main new feature
+            st.divider()
+            st.subheader("AI Explanation")
+            st.markdown(explanation)
+
+            # Agent reasoning trace — collapsed by default
+            if agent.trace:
+                with st.expander("View agent reasoning trace"):
+                    for step in agent.trace:
+                        st.markdown(f"- {step}")
+
+            with st.expander("View raw plan"):
+                st.text(plan.explain_plan())
+
         else:
-            st.success("No scheduling conflicts detected.")
+            # ── Rule-based fallback (no API key) ──────────────────────────────
+            plan = planner.generate_daily_plan(datetime.now())
+            summary = plan.get_summary()
 
-        # Chronological schedule — explain_plan() sorts tasks by start time
-        if summary["scheduled_tasks"]:
-            st.write("**Chronological schedule:**")
-            st.dataframe(
-                summary["scheduled_tasks"],
-                use_container_width=True,
-                hide_index=True,
-            )
+            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1.metric("Scheduled", summary["scheduled_count"])
+            col_m2.metric("Could not schedule", summary["unscheduled_count"])
+            col_m3.metric("Total time (min)", summary["total_time_minutes"])
 
-        # Unscheduled tasks
-        if summary["unscheduled_tasks"]:
-            st.warning(
-                f"{summary['unscheduled_count']} task(s) could not be scheduled — "
-                "no suitable time slot was available."
-            )
-            st.dataframe(
-                summary["unscheduled_tasks"],
-                use_container_width=True,
-                hide_index=True,
-            )
+            conflicts = plan.detect_conflicts()
+            if conflicts:
+                st.error(f"⚠️ {len(conflicts)} scheduling conflict(s) detected.")
+                for c in conflicts:
+                    st.error(c)
+            else:
+                st.success("No scheduling conflicts detected.")
 
-        # Verbose outputs collapsed by default so they don't crowd the page
-        with st.expander("View full chronological plan"):
-            st.text(plan.explain_plan())
+            if summary["scheduled_tasks"]:
+                st.write("**Chronological schedule:**")
+                st.dataframe(
+                    summary["scheduled_tasks"],
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
-        with st.expander("View scheduling decisions"):
-            st.text(planner.explain_decisions(plan))
+            if summary["unscheduled_tasks"]:
+                st.warning(
+                    f"{summary['unscheduled_count']} task(s) could not be scheduled — "
+                    "no suitable time slot was available."
+                )
+                st.dataframe(
+                    summary["unscheduled_tasks"],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+            with st.expander("View full chronological plan"):
+                st.text(plan.explain_plan())
+
+            with st.expander("View scheduling decisions"):
+                st.text(planner.explain_decisions(plan))
