@@ -84,6 +84,7 @@ class PawPalAgent:
         self.rag = rag
         self.client = anthropic.Anthropic(api_key=api_key)
         self.trace: list[str] = []  # human-readable log of agent steps for UI display
+        self.confidence: dict = {"level": "Unknown", "reason": "Not yet reported."}
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -150,10 +151,13 @@ class PawPalAgent:
         return (
             "You are PawPal+, a helpful and knowledgeable pet care scheduling assistant. "
             "Your role is to review automatically generated daily schedules for pet owners, "
-            "look up evidence-based care guidelines when relevant, and explain the schedule "
-            "clearly. Always use the retrieve_pet_care_info tool before making any claim about "
-            "a health condition, medication, or species-specific need. Be warm, concise, and "
-            "practical — the owner is busy and just needs to know what to do and why."
+            "look up evidence-based care guidelines when relevant, and explain the schedule clearly.\n\n"
+            "Follow this exact sequence:\n"
+            "1. Call retrieve_pet_care_info for each health condition, species, or task type you need guidance on.\n"
+            "2. Once you have retrieved all relevant information, call report_confidence with your "
+            "confidence level (High / Medium / Low) and a one-sentence reason.\n"
+            "3. Write the final explanation for the owner.\n\n"
+            "Be warm, concise, and practical — the owner is busy."
         )
 
     def _tool_definitions(self) -> list[dict]:
@@ -178,7 +182,33 @@ class PawPalAgent:
                     },
                     "required": ["query"],
                 },
-            }
+            },
+            {
+                "name": "report_confidence",
+                "description": (
+                    "Report your confidence in the schedule review. Call this once after "
+                    "all retrieve_pet_care_info calls are done and before writing the explanation."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "level": {
+                            "type": "string",
+                            "enum": ["High", "Medium", "Low"],
+                            "description": (
+                                "High: found specific guidelines for all key health conditions and task types. "
+                                "Medium: found partial coverage — some conditions or tasks had no matching docs. "
+                                "Low: little or no relevant information was retrieved."
+                            ),
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "One sentence explaining the confidence level.",
+                        },
+                    },
+                    "required": ["level", "reason"],
+                },
+            },
         ]
 
     def _run_loop(self, messages: list[dict], plan: DailyPlan) -> str:
@@ -211,16 +241,32 @@ class PawPalAgent:
             # Process each tool call
             tool_results = []
             for tc in tool_uses:
-                query = tc.input.get("query", "")
-                self.trace.append(f"RAG lookup → \"{query}\"")
-                retrieved = self.rag.retrieve_as_text(query)
-                tool_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": tc.id,
-                        "content": retrieved,
+                if tc.name == "retrieve_pet_care_info":
+                    query = tc.input.get("query", "")
+                    self.trace.append(f"RAG lookup → \"{query}\"")
+                    retrieved = self.rag.retrieve_as_text(query)
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tc.id,
+                            "content": retrieved,
+                        }
+                    )
+                elif tc.name == "report_confidence":
+                    self.confidence = {
+                        "level": tc.input.get("level", "Unknown"),
+                        "reason": tc.input.get("reason", ""),
                     }
-                )
+                    self.trace.append(
+                        f"Confidence reported → {self.confidence['level']}: {self.confidence['reason']}"
+                    )
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tc.id,
+                            "content": "Confidence recorded.",
+                        }
+                    )
 
             # Append assistant turn and tool results before next iteration
             messages.append({"role": "assistant", "content": response.content})

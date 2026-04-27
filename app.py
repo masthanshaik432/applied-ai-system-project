@@ -311,6 +311,18 @@ else:
             # AI explanation — the main new feature
             st.divider()
             st.subheader("AI Explanation")
+
+            conf = agent.confidence
+            level, reason = conf.get("level", "Unknown"), conf.get("reason", "")
+            if level == "High":
+                st.success(f"Confidence: {level} — {reason}")
+            elif level == "Medium":
+                st.warning(f"Confidence: {level} — {reason}")
+            elif level == "Low":
+                st.error(f"Confidence: {level} — {reason}")
+            else:
+                st.info(f"Confidence: {level}")
+
             st.markdown(explanation)
 
             # Agent reasoning trace — collapsed by default

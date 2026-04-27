@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import pytest
 from datetime import datetime, timedelta
 from pawpal_system import (
@@ -395,3 +399,73 @@ def test_conflict_message_contains_task_names(rex, luna):
 
     assert any("Walk Rex" in msg for msg in conflicts), "Conflict message must name the first task"
     assert any("Feed Luna" in msg for msg in conflicts), "Conflict message must name the second task"
+
+
+# ===========================================================================
+# RAG RETRIEVER — PawPalRAG returns relevant documents without an API call
+# ===========================================================================
+
+from ai_agent import PawPalRAG
+
+KNOWLEDGE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "knowledge")
+
+
+@pytest.fixture
+def rag():
+    return PawPalRAG(knowledge_dir=KNOWLEDGE_DIR)
+
+
+# Happy path: arthritis query surfaces the arthritis document
+def test_rag_arthritis_query_returns_arthritis_content(rag):
+    result = rag.retrieve_as_text("arthritis dog exercise")
+    assert "arthritis" in result.lower(), (
+        "Query about arthritis should return content from arthritis.md"
+    )
+
+
+# Happy path: cat query surfaces the cat care document
+def test_rag_cat_query_returns_cat_content(rag):
+    result = rag.retrieve_as_text("cat feeding schedule")
+    assert "cat" in result.lower(), (
+        "Query about cat care should return content from cat_care.md"
+    )
+
+
+# Happy path: medication query surfaces the medication guidelines document
+def test_rag_medication_query_returns_medication_content(rag):
+    result = rag.retrieve_as_text("medication timing twice daily")
+    assert "medication" in result.lower(), (
+        "Query about medication should return content from medication_guidelines.md"
+    )
+
+
+# Happy path: top_k=1 returns exactly one document section
+def test_rag_top_k_limits_results(rag):
+    results = rag.retrieve("dog walk exercise", top_k=1)
+    assert len(results) == 1, "top_k=1 must return exactly one document"
+
+
+# Happy path: retrieve returns (name, content) tuples
+def test_rag_retrieve_returns_name_and_content_tuples(rag):
+    results = rag.retrieve("arthritis", top_k=2)
+    assert len(results) >= 1
+    for name, content in results:
+        assert isinstance(name, str) and len(name) > 0
+        assert isinstance(content, str) and len(content) > 0
+
+
+# Edge case: irrelevant query returns no results (score of 0)
+def test_rag_irrelevant_query_returns_empty(rag):
+    results = rag.retrieve("xyzzy quantum blockchain nanobot", top_k=3)
+    assert results == [], "A query with no matching terms should return an empty list"
+
+
+# Edge case: knowledge base loads all 7 expected documents
+def test_rag_loads_all_knowledge_documents(rag):
+    expected = {
+        "arthritis", "heart_disease", "obesity", "post_surgery",
+        "dog_care", "cat_care", "medication_guidelines",
+    }
+    assert expected == set(rag.documents.keys()), (
+        "All 7 knowledge base documents must be loaded"
+    )
