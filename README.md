@@ -6,15 +6,16 @@ A smart pet care scheduling app that combines rule-based planning with an AI-pow
 
 ## Original Project
 
-PawPal+ began as a Module 1–3 project for Codepath AI 110. The original goal was to build a Streamlit app that helps a pet owner plan and track daily care tasks — walks, feeding, medication, grooming, and vet appointments — across multiple pets. The system used a rule-based scheduler that prioritized tasks by urgency and health constraints, allocated them into time slots based on owner preferences, and detected scheduling conflicts automatically. It supported recurring tasks, task history, streak tracking, and pet health condition filtering, all backed by a clean class hierarchy in Python.
+PawPal+ started as a project for pet management. The idea was to build a simple Streamlit app that helps pet owners organize and keep up with daily care tasks like walks, feeding, medication, grooming, and vet visits for multiple pets.
+The app uses a rule-based system to sort tasks by urgency and health needs, then fits them into a schedule based on the owner’s preferences. It can spot scheduling conflicts automatically and supports recurring tasks, task history, streak tracking, and filtering by a pet’s health conditions. Everything is structured with a clear class design in Python to keep the system organized and easy to extend.
 
 ---
 
 ## Title and Summary
 
-**PawPal+** turns a static daily task list into an intelligently reasoned pet care plan. The app generates a schedule using a constraint-aware rule-based planner, then passes that plan to a Claude-powered AI agent. The agent retrieves relevant pet care guidelines from a local knowledge base (RAG), and produces a grounded, natural-language explanation of the schedule tailored to each pet's species, age, and health conditions.
+**PawPal+** turns a static daily task list into a reasoned pet care plan. The app generates a schedule using a "constraint-aware rule-based" planner, then passes that plan to a Claude-powered AI agent. The agent retrieves relevant pet care guidelines from a local knowledge base (RAG), and produces an explanation of the schedule tailored to each pet's species, age, and health conditions.
 
-**Why it matters:** Generic scheduling apps don't know that an arthritic dog needs shorter walks, or that cardiac medication must be given exactly 12 hours apart. PawPal+ connects scheduling logic to real care knowledge, so the owner doesn't just see *what* to do — they understand *why*.
+**Why it matters:** Most scheduling apps don’t understand the details that matter for pet care, whether it be giving shorter walks to a dog with arthritis or making sure heart medication is spaced exactly 12 hours apart. PawPal+ ties scheduling logic to real care guidance, so owners don’t just see what to do, but they also understand why it matters.
 
 ---
 
@@ -138,20 +139,9 @@ Agent produced final explanation after 3 turn(s).
 
 ## Design Decisions
 
-**Why RAG over a fine-tuned model?**
-A fine-tuned model would require labeled training data and infrastructure that doesn't exist at this project's scale. RAG achieves the same goal — grounding the AI's output in real pet-care knowledge — with a simple local knowledge base and no training cost. It's also easier to update: adding a new condition means adding one markdown file.
+One decision I made was choosing Retrieval Augmented Generation over a fine tuned model. There would be a lot of labelled data and infrastructure required to use a fine-tuned model as opposed to using RAG. RAG is able to get the specific data knowledge and apply it in its own way to make meaningful insights.
 
-**Why keyword scoring instead of embeddings?**
-Embedding-based retrieval (e.g., `sentence-transformers`) is more semantically powerful but adds a heavy dependency and latency. For 7 short documents with clear topical names, term-overlap scoring is fast, transparent, and accurate enough. The tradeoff is that synonyms ("cardiac" vs. "heart") can miss — mitigated by writing documents with varied terminology.
-
-**Why Claude Haiku?**
-The task — review a schedule, look up a doc, write a short explanation — doesn't require deep reasoning. Haiku is significantly cheaper and faster than Sonnet or Opus for this use case, making it practical to call on every schedule generation without cost concern.
-
-**Why keep the rule-based planner?**
-The existing Planner is fast, deterministic, and testable. The AI agent doesn't replace it — it wraps it. The planner handles the hard constraint logic (slot allocation, health restrictions, conflict detection); the agent handles the soft, language-heavy part (explanation, nuance, owner communication). This separation means the scheduling logic can be tested independently of the AI layer.
-
-**Graceful fallback:**
-If no API key is provided, the app falls back to the original rule-based `explain_decisions()` output. This keeps the app fully functional without the AI layer and makes it easier to demo in environments without API access.
+I specifically chose Claude Haiku as the AI model since the task at hand is quite simple in nature and does not need deep reasoning. The AI agent remains as a wrapper rather than an entire replacement for the planner and lets the planner handle the hard logic (scheduling, restriction consideration), whereas the agent handles the language heavy parts such as the explaination. From a decoupling standpoint, it lets the scheduling happen independently, and if the API key is not provided, then the app falls to the rule-based output.
 
 ---
 
@@ -182,13 +172,32 @@ Separating the deterministic logic from the AI layer made both easier to build a
 
 ---
 
+## Responsible AI
+
+### Limitations and biases
+
+The knowledge base is the most significant source of bias. The 7 documents were written using ChatGPT and reflect general Western veterinary guidelines. They don't account for things like breed differences or differences in available medications. If a user's pet has a condition not covered in the knowledge base, the retriever returns nothing relevant and Claude falls back on its training data, which has no transparency.
+
+### Misuse potential and mitigations
+
+The most likely misuse is an owner treating the AI’s explanation as a replacement for actual veterinary advice. The app can explain why something like medication timing matters, but it doesn’t know a pet’s exact diagnosis, current dosage, or any recent changes from the vet. That creates a real risk where someone could follow the schedule and overlook an updated instruction.
+To reduce that risk, the app should include a clear, persistent disclaimer that its explanations are general guidance, not medical advice. It would also help to flag when a pet’s condition doesn’t have a matching document in the knowledge base, so the user knows the explanation may be incomplete or missing important context.
+
+### Collaboration with AI during this project
+
+AI assistance was used throughout the build, most heavily during the agent architecture design and the knowledge base content.
+
+**One instance where AI was genuinely helpful:** When introducing RAG, AI was able to generate documentation such as the arthiritis.md and obesity.md, and connect that with the LLM. It was so nice to see that there was actual proof that the AI features in the PawPal were using the documents when possible.
+
+**One instance where the AI's suggestion was flawed:** The boilerplate code felt a little off at times. For example, I was not a fan of how it generated default values for pet names, ages, and task times. I removed these default generated values on my own so that it becomes more obvious that users have to plant them themselves.
+
+---
+
 ## Reflection
 
-Building PawPal+ with an AI layer taught me that the most valuable thing an LLM can do in a real application is often not make decisions — it's *explain* them. The rule-based planner already makes the scheduling decisions; Claude's job is to translate those decisions into something the owner can understand and act on. That's a much more reliable and testable use of an LLM than asking it to do the planning itself.
+Building PawPal+ with an AI layer taught me that the most valuable thing an LLM can do is explain the decision making really well. The rule based planner already makes the scheduling decisions, and Claude's job is to translate those decisions into something the owner can understand and act on. That's a much more reliable and testable use of an LLM than asking it to do the planning itself.
 
-RAG reinforced how much grounding matters. Without the knowledge base, Claude's explanations were generic ("this task has high priority"). With it, they referenced specific care guidelines tied to the pet's actual health conditions. The difference in output quality was immediate and obvious — and it came from 7 short markdown files, not a complex pipeline.
-
-The biggest practical lesson was about failure modes: LLMs ask clarifying questions when they don't have enough context. The first version of the agent didn't pass pet details to Claude, so it responded by asking what species the pet was. The fix was simple (add pet context to the prompt), but it was a good reminder that prompt design is as important as model choice. Getting the input right matters more than picking the fanciest model.
+RAG reinforced how much grounding matters. Without the knowledge base, Claude's explanations were generic ("this task has high priority"). With the document based specifics, they referenced specific care guidelines tied to the pet's actual health conditions. The difference in output quality was pretty significant.
 
 ---
 
