@@ -145,6 +145,64 @@ I specifically chose Claude Haiku as the AI model since the task at hand is quit
 
 ---
 
+## Reliability Mechanism
+
+PawPal+ includes two reliability layers: **output guardrails** built into the agent, and an **evaluation script** that tests both layers without requiring an API key.
+
+### Output guardrails
+
+After Claude generates an explanation, `PawPalAgent._apply_guardrails()` runs four checks before the result is shown to the owner:
+
+| Guardrail | What it checks | On failure |
+|---|---|---|
+| Not empty | Explanation is non-empty | Flags + falls back to rule-based output |
+| Minimum length | At least 50 words | Flags issue in trace |
+| Pet name present | At least one pet's name appears | Flags issue in trace |
+| No refusal pattern | Doesn't contain phrases like "I don't have enough information" or "could you provide" | Flags + falls back to rule-based output |
+
+If any guardrail triggers, the issue appears in the **"View agent reasoning trace"** expander in the UI. Critical failures (empty output or refusals) automatically swap in the rule-based `explain_decisions()` output so the owner always sees a usable result.
+
+### Evaluation script
+
+`eval_agent.py` runs 14 checks across two sections and produces a pass/fail report. **No API key is needed** for sections 1 and 2.
+
+```bash
+python eval_agent.py
+```
+
+**Example output:**
+
+```
+=== Section 1: RAG Retrieval Quality ===
+
+  [PASS] RAG: 'arthritis dog exercise' → contains 'arthritis'
+  [PASS] RAG: 'cat feeding schedule' → contains 'cat'
+  [PASS] RAG: 'heart disease medication' → contains 'heart'
+  [PASS] RAG: 'post surgery recovery' → contains 'surgery'
+  [PASS] RAG: 'obesity weight management' → contains 'obesity'
+  [PASS] RAG: 'medication twice daily' → contains 'medication'
+  [PASS] RAG: top_k=2 returns at most 2 docs
+  [PASS] RAG: nonsense query returns empty list
+  [PASS] RAG: all 7 knowledge docs loaded
+
+=== Section 2: Output Guardrail Checks ===
+
+  [PASS] Guardrail: empty explanation is flagged
+         → ['FAIL: explanation is empty.', 'FAIL: explanation too short (0 words; minimum 50).']
+  [PASS] Guardrail: too-short explanation is flagged
+         → ['FAIL: explanation too short (4 words; minimum 50).']
+  [PASS] Guardrail: explanation missing pet name is flagged
+         → ['FAIL: explanation does not reference any pet by name.']
+  [PASS] Guardrail: refusal/clarifying-question pattern is flagged
+         → ['FAIL: explanation appears to be a refusal or is asking for missing context.']
+  [PASS] Guardrail: good explanation passes all checks
+         → []
+
+  14/14 checks passed
+```
+
+Section 3 (live pipeline smoke test) runs automatically when `ANTHROPIC_API_KEY` is set and verifies that a real Claude response passes all four guardrails end-to-end.
+
 ## Testing Summary
 
 Run the test suite with:
@@ -185,11 +243,9 @@ To reduce that risk, the app should include a clear, persistent disclaimer that 
 
 ### Collaboration with AI during this project
 
-AI assistance was used throughout the build, most heavily during the agent architecture design and the knowledge base content.
-
-**One instance where AI was genuinely helpful:** When introducing RAG, AI was able to generate documentation such as the arthiritis.md and obesity.md, and connect that with the LLM. It was so nice to see that there was actual proof that the AI features in the PawPal were using the documents when possible.
-
-**One instance where the AI's suggestion was flawed:** The boilerplate code felt a little off at times. For example, I was not a fan of how it generated default values for pet names, ages, and task times. I removed these default generated values on my own so that it becomes more obvious that users have to plant them themselves.
+AI assistance was used throughout the build, most heavily during the agent architecture design and the knowledge base content. 
+When introducing RAG, AI was able to generate documentation such as the arthiritis.md and obesity.md, and connect that with the LLM. It was so nice to see that there was actual proof that the AI features in the PawPal were using the documents when possible.
+The boilerplate code felt a little off at times. For example, I was not a fan of how it generated default values for pet names, ages, and task times. I removed these default generated values on my own so that it becomes more obvious that users have to plant them themselves.
 
 ---
 

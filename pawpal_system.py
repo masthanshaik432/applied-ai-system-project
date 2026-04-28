@@ -31,7 +31,7 @@ FREQUENCY_INTERVALS: dict[str, int] = {
 # Health conditions that restrict scheduling certain task types.
 _HEALTH_RESTRICTIONS: dict[str, set[TaskType]] = {
     "heart_disease": {TaskType.WALK},
-    "arthritis":     {TaskType.WALK},
+    "arthritis":     set(),   # walks are reduced in priority but not blocked — movement prevents muscle loss
     "post_surgery":  {TaskType.WALK, TaskType.GROOMING},
     "obesity":       set(),   # no hard block — priority boost handled elsewhere
 }

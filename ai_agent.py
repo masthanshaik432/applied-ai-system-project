@@ -90,9 +90,69 @@ class PawPalAgent:
     # Public entry point
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Output guardrails
+    # ------------------------------------------------------------------
+
+    def _apply_guardrails(self, explanation: str, date: datetime) -> tuple[str, list[str]]:
+        """Validate the explanation against quality guardrails.
+
+        Checks run in order; all failures are collected rather than stopping
+        at the first one so the caller gets a complete picture.
+
+        Returns:
+            (explanation, issues) where issues is an empty list on success.
+            If a critical guardrail fails the explanation is replaced with
+            the rule-based fallback so the owner always sees *something*.
+        """
+        issues: list[str] = []
+
+        # Guardrail 1 — not empty
+        if not explanation.strip():
+            issues.append("FAIL: explanation is empty.")
+
+        # Guardrail 2 — minimum useful length (50 words)
+        word_count = len(explanation.split())
+        if word_count < 50:
+            issues.append(f"FAIL: explanation too short ({word_count} words; minimum 50).")
+
+        # Guardrail 3 — mentions at least one pet by name
+        pet_names = [p.name.lower() for p in self.planner.pets]
+        if pet_names and not any(name in explanation.lower() for name in pet_names):
+            issues.append("FAIL: explanation does not reference any pet by name.")
+
+        # Guardrail 4 — no refusal or clarifying-question patterns
+        refusal_signals = [
+            "i don't have enough",
+            "i cannot provide",
+            "i'm unable to",
+            "could you provide",
+            "what species",
+            "what type of pet",
+        ]
+        if any(signal in explanation.lower() for signal in refusal_signals):
+            issues.append("FAIL: explanation appears to be a refusal or is asking for missing context.")
+
+        if issues:
+            self.trace.append(f"Guardrail(s) triggered: {len(issues)} issue(s) found.")
+            for issue in issues:
+                self.trace.append(f"  {issue}")
+            # Critical failure — swap in the rule-based explanation as a safe fallback
+            critical = any("empty" in i or "refusal" in i for i in issues)
+            if critical:
+                self.trace.append("Using rule-based fallback explanation.")
+                explanation = self.planner.explain_decisions(
+                    self.planner.generate_daily_plan(date)
+                )
+        else:
+            self.trace.append("Guardrails passed — explanation looks good.")
+
+        return explanation, issues
+
     def generate_and_explain(self, date: datetime) -> tuple[DailyPlan, str]:
         """Run the full pipeline and return (DailyPlan, grounded_explanation)."""
         self.trace = []
+        self.guardrail_issues: list[str] = []
 
         # Step 1 — existing rule-based scheduler
         plan = self.planner.generate_daily_plan(date)
@@ -140,6 +200,9 @@ class PawPalAgent:
         # Step 3 — agentic loop
         messages: list[dict] = [{"role": "user", "content": user_message}]
         explanation = self._run_loop(messages, plan)
+
+        # Step 4 — guardrails
+        explanation, self.guardrail_issues = self._apply_guardrails(explanation, date)
 
         return plan, explanation
 

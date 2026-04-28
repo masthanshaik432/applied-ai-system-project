@@ -323,6 +323,11 @@ else:
             else:
                 st.info(f"Confidence: {level}")
 
+            if agent.guardrail_issues:
+                with st.expander(f"⚠️ {len(agent.guardrail_issues)} output guardrail(s) triggered"):
+                    for issue in agent.guardrail_issues:
+                        st.warning(issue)
+
             st.markdown(explanation)
 
             # Agent reasoning trace — collapsed by default
