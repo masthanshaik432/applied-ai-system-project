@@ -2,6 +2,8 @@
 
 A smart pet care scheduling app that combines rule-based planning with an AI-powered agent and retrieval-augmented generation (RAG) to help busy pet owners stay on top of daily care tasks.
 
+Demo Video Loom Link: https://www.loom.com/share/31da675b876945a9af9f2675dd8b743c
+
 ---
 
 ## Original Project
